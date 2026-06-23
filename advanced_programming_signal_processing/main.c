@@ -4,7 +4,7 @@
 #include <string.h>
 #include <limits.h>
 #include <math.h>
-//#include <omp.h>
+#include <omp.h>
 
 void templateMatchingGray(Image *src, Image *template, Point *position, double *distance)
 {
@@ -18,6 +18,7 @@ void templateMatchingGray(Image *src, Image *template, Point *position, double *
 	int ret_x = 0;
 	int ret_y = 0;
 	int x, y, i, j;
+	#pragma omp parallel for schedule(dynamic) private(x, i, j)
 	for (y = 0; y < (src->height - template->height); y++)
 	{
 		for (x = 0; x < src->width - template->width; x++)
@@ -35,9 +36,15 @@ void templateMatchingGray(Image *src, Image *template, Point *position, double *
 			}
 			if (distance < min_distance)
 			{
-				min_distance = distance;
-				ret_x = x;
-				ret_y = y;
+				#pragma omp critical
+				{
+					if (distance < min_distance)
+					{
+						min_distance = distance;
+						ret_x = x;
+						ret_y = y;
+					}
+				}
 			}
 		}
 	}
@@ -59,6 +66,7 @@ void templateMatchingColor(Image *src, Image *template, Point *position, double 
 	int ret_x = 0;
 	int ret_y = 0;
 	int x, y, i, j;
+	#pragma omp parallel for schedule(dynamic) private(x, i, j)
 	for (y = 0; y < (src->height - template->height); y++)
 	{
 		for (x = 0; x < src->width - template->width; x++)
@@ -81,9 +89,15 @@ void templateMatchingColor(Image *src, Image *template, Point *position, double 
 			}
 			if (distance < min_distance)
 			{
-				min_distance = distance;
-				ret_x = x;
-				ret_y = y;
+				#pragma omp critical
+				{
+					if (distance < min_distance)
+					{
+						min_distance = distance;
+						ret_x = x;
+						ret_y = y;
+					}
+				}
 			}
 		}
 	}

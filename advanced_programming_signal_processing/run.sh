@@ -76,7 +76,7 @@ for image in "${LEVEL_DIR}"/test/*.ppm; do
     for template in "${LEVEL_DIR}"/*.ppm; do
         get_all_variants "${template}" > "${VARIANTS_FILE}"
         while IFS=' ' read -r variant_path rotation; do
-            ./matching "${name}" "${variant_path}" "${rotation}" "${THRESHOLD}" p
+            ./matching "${name}" "${variant_path}" "${rotation}" "${THRESHOLD}" pg
         done < "${VARIANTS_FILE}"
     done
 
