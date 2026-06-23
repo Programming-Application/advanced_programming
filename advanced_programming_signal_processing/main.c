@@ -23,7 +23,6 @@ void templateMatchingGray(Image *src, Image *template, Point *position, double *
 		for (x = 0; x < src->width - template->width; x++)
 		{
 			int distance = 0;
-			//SSD
 			for (j = 0; j < template->height; j++)
 			{
 				for (i = 0; i < template->width; i++)
@@ -31,6 +30,8 @@ void templateMatchingGray(Image *src, Image *template, Point *position, double *
 					int v = (src->data[(y + j) * src->width + (x + i)] - template->data[j * template->width + i]);
 					distance += v * v;
 				}
+				if (distance >= min_distance)
+					break;
 			}
 			if (distance < min_distance)
 			{
@@ -63,7 +64,6 @@ void templateMatchingColor(Image *src, Image *template, Point *position, double 
 		for (x = 0; x < src->width - template->width; x++)
 		{
 			int distance = 0;
-			//SSD
 			for (j = 0; j < template->height; j++)
 			{
 				for (i = 0; i < template->width; i++)
@@ -76,6 +76,8 @@ void templateMatchingColor(Image *src, Image *template, Point *position, double 
 
 					distance += (r * r + g * g + b * b);
 				}
+				if (distance >= min_distance)
+					break;
 			}
 			if (distance < min_distance)
 			{
