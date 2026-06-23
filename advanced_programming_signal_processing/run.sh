@@ -8,6 +8,19 @@
 LEVEL_DIR="$1"
 shift
 
+THRESHOLD=0.5
+DENOISE_RADIUS=0
+
+IM_CMD=${IM_CMD:-convert}
+if ! command -v "${IM_CMD}" >/dev/null 2>&1; then
+    if command -v magick >/dev/null 2>&1; then
+        IM_CMD=magick
+    else
+        echo "ImageMagick command not found: install ImageMagick or set IM_CMD" >&2
+        exit 1
+    fi
+fi
+
 PREP_TMPDIR="imgproc/variants"
 mkdir -p "${PREP_TMPDIR}"
 
@@ -30,13 +43,23 @@ while [ $# -gt 0 ]; do
                 echo "Warning: preprocess/scale.sh not found, skipping -s" >&2
             fi
             ;;
+        -d)
+            DENOISE_RADIUS=1
+            ;;
+        -m)
+            shift
+            DENOISE_RADIUS="$1"
+            ;;
+        -t)
+            shift
+            THRESHOLD="$1"
+            ;;
     esac
     shift
 done
 
-THRESHOLD=0.5
 NEED_BEST=0
-if [ "${MODULES}" != "base" ]; then
+if [ "${MODULES}" != "base" ] || [ "${DENOISE_RADIUS}" != "0" ]; then
     NEED_BEST=1
 fi
 
@@ -68,7 +91,16 @@ for image in "${LEVEL_DIR}"/test/*.ppm; do
     result_file="result/${bname%.ppm}.txt"
 
     echo "${name}"
-    convert "${image}" "${name}"
+    if [ "${DENOISE_RADIUS}" = "0" ]; then
+        "${IM_CMD}" "${image}" "${name}"
+    else
+        median_side=$((2 * DENOISE_RADIUS + 1))
+        if "${IM_CMD}" "${image}" -statistic Median "${median_side}x${median_side}" "${name}" 2>/dev/null; then
+            :
+        else
+            "${IM_CMD}" "${image}" -median "${DENOISE_RADIUS}" "${name}"
+        fi
+    fi
 
     # Clear result file before matching
     : > "${result_file}"

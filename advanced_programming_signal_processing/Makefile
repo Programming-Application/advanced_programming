@@ -1,10 +1,16 @@
+CC ?= gcc
+LIBOMP_PREFIX := $(shell brew --prefix libomp 2>/dev/null)
+
+ifneq ($(LIBOMP_PREFIX),)
+OMP_FLAGS := -Xpreprocessor -fopenmp -I$(LIBOMP_PREFIX)/include -L$(LIBOMP_PREFIX)/lib -lomp
+else ifeq ($(shell printf 'int main(){return 0;}' | $(CC) -fopenmp -x c - -o /dev/null 2>/dev/null && echo ok),ok)
+OMP_FLAGS := -fopenmp
+else
+OMP_FLAGS :=
+endif
+
 matching: main.c imageUtil.c
-#	gcc -w -o matching main.c imageUtil.c -lm
-#	gcc -w -O2 -o matching main.c imageUtil.c -lm
-#	gcc -w -O2 -fopenmp -o matching main.c imageUtil.c -lm
-	gcc -w -O2 -Xpreprocessor -fopenmp -o matching main.c imageUtil.c -lm -I/opt/homebrew/opt/libomp/include -L/opt/homebrew/opt/libomp/lib -lomp
-#	gcc -w -O3 -fopenmp -o matching main.c imageUtil.c -lm
-#	gcc -w -O3 -fopenmp -o matching main.c imageUtil.c -lm -mtune=native
+	$(CC) -w -O2 $(OMP_FLAGS) -o matching main.c imageUtil.c -lm
 
 clean:
 	$(RM) matching

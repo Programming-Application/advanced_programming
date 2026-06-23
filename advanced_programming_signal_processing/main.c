@@ -4,7 +4,9 @@
 #include <string.h>
 #include <limits.h>
 #include <math.h>
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 
 void templateMatchingGray(Image *src, Image *template, Point *position, double *distance)
 {
@@ -160,6 +162,10 @@ int main(int argc, char **argv)
 
 	Image *img = readPXM(input_file);
 	Image *template = readPXM(template_file);
+	if (img == NULL || template == NULL)
+	{
+		return -1;
+	}
 
 	Point result;
 	double distance = 0.0;
