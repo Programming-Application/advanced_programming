@@ -3,7 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-//#include <omp.h>
+#include <math.h>
+#include <omp.h>
 
 void templateMatchingGray(Image *src, Image *template, Point *position, double *distance)
 {
@@ -17,12 +18,12 @@ void templateMatchingGray(Image *src, Image *template, Point *position, double *
 	int ret_x = 0;
 	int ret_y = 0;
 	int x, y, i, j;
+	#pragma omp parallel for schedule(dynamic) private(x, i, j)
 	for (y = 0; y < (src->height - template->height); y++)
 	{
 		for (x = 0; x < src->width - template->width; x++)
 		{
 			int distance = 0;
-			//SSD
 			for (j = 0; j < template->height; j++)
 			{
 				for (i = 0; i < template->width; i++)
@@ -30,12 +31,20 @@ void templateMatchingGray(Image *src, Image *template, Point *position, double *
 					int v = (src->data[(y + j) * src->width + (x + i)] - template->data[j * template->width + i]);
 					distance += v * v;
 				}
+				if (distance >= min_distance)
+					break;
 			}
 			if (distance < min_distance)
 			{
-				min_distance = distance;
-				ret_x = x;
-				ret_y = y;
+				#pragma omp critical
+				{
+					if (distance < min_distance)
+					{
+						min_distance = distance;
+						ret_x = x;
+						ret_y = y;
+					}
+				}
 			}
 		}
 	}
@@ -57,12 +66,12 @@ void templateMatchingColor(Image *src, Image *template, Point *position, double 
 	int ret_x = 0;
 	int ret_y = 0;
 	int x, y, i, j;
+	#pragma omp parallel for schedule(dynamic) private(x, i, j)
 	for (y = 0; y < (src->height - template->height); y++)
 	{
 		for (x = 0; x < src->width - template->width; x++)
 		{
 			int distance = 0;
-			//SSD
 			for (j = 0; j < template->height; j++)
 			{
 				for (i = 0; i < template->width; i++)
@@ -75,12 +84,20 @@ void templateMatchingColor(Image *src, Image *template, Point *position, double 
 
 					distance += (r * r + g * g + b * b);
 				}
+				if (distance >= min_distance)
+					break;
 			}
 			if (distance < min_distance)
 			{
-				min_distance = distance;
-				ret_x = x;
-				ret_y = y;
+				#pragma omp critical
+				{
+					if (distance < min_distance)
+					{
+						min_distance = distance;
+						ret_x = x;
+						ret_y = y;
+					}
+				}
 			}
 		}
 	}
@@ -131,13 +148,13 @@ int main(int argc, char **argv)
 	if (argc == 6)
 	{
 		char *p = NULL;
-		if (p = strchr(argv[5], 'c') != NULL)
+		if ((p = strchr(argv[5], 'c')) != NULL)
 			clearResult(output_name_txt);
-		if (p = strchr(argv[5], 'w') != NULL)
+		if ((p = strchr(argv[5], 'w')) != NULL)
 			isWriteImageResult = 1;
-		if (p = strchr(argv[5], 'p') != NULL)
+		if ((p = strchr(argv[5], 'p')) != NULL)
 			isPrintResult = 1;
-		if (p = strchr(argv[5], 'g') != NULL)
+		if ((p = strchr(argv[5], 'g')) != NULL)
 			isGray = 1;
 	}
 
