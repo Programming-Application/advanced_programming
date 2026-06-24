@@ -1,8 +1,9 @@
 #!/bin/sh
 # Template matching pipeline
-# Usage: sh run.sh <level_dir> [-r] [-s] ...
+# Usage: sh run.sh <level_dir> [-r] [-s] [-c] ...
 #   -r  enable rotation (preprocess/rotate.sh)
 #   -s  enable scaling  (preprocess/scale.sh)
+#   -c  enable contrast variants (preprocess/contrast.sh)
 # No flags: base matching only (rotation=0)
 
 LEVEL_DIR="$1"
@@ -29,6 +30,10 @@ while [ $# -gt 0 ]; do
             else
                 echo "Warning: preprocess/scale.sh not found, skipping -s" >&2
             fi
+            ;;
+        -c)
+            . ./preprocess/contrast.sh
+            MODULES="${MODULES} contrast"
             ;;
     esac
     shift
