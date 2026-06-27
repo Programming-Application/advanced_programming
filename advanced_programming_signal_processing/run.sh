@@ -8,8 +8,15 @@
 LEVEL_DIR="$1"
 shift
 
+THRESHOLD=0.5
+IMAGE_PREPROCESS="base"
+
 PREP_TMPDIR="imgproc/variants"
 mkdir -p "${PREP_TMPDIR}"
+
+# Archive the test data (fake images) and ground truth (correct answers) used in this run
+OUTPUT_IMAGE_DIR="outputImage/$(date +%Y%m%d_%H%M%S)"
+mkdir -p "${OUTPUT_IMAGE_DIR}"
 
 # Always load base module
 . ./preprocess/base.sh
@@ -29,6 +36,22 @@ while [ $# -gt 0 ]; do
             else
                 echo "Warning: preprocess/scale.sh not found, skipping -s" >&2
             fi
+            ;;
+        -d)
+            . ./preprocess/denoise.sh
+            MODULES="${MODULES} denoise"
+            IMAGE_PREPROCESS="denoise"
+            ;;
+        -m)
+            shift
+            DENOISE_RADIUS="$1"
+            . ./preprocess/denoise.sh
+            MODULES="${MODULES} denoise"
+            IMAGE_PREPROCESS="denoise"
+            ;;
+        -t)
+            shift
+            THRESHOLD="$1"
             ;;
     esac
     shift
@@ -73,7 +96,12 @@ for image in "${LEVEL_DIR}"/test/*.ppm; do
     result_file="result/${bname%.ppm}.txt"
 
     echo "${name}"
-    convert "${image}" "${name}"
+    "preprocess_image_${IMAGE_PREPROCESS}" "${image}" "${name}"
+
+    # Archive the test image (fake data) and its ground truth (correct answer)
+    convert "${image}" "${OUTPUT_IMAGE_DIR}/${bname%.ppm}.png"
+    answer_file="${LEVEL_DIR}/test/${bname%.ppm}.txt"
+    [ -f "${answer_file}" ] && cp "${answer_file}" "${OUTPUT_IMAGE_DIR}/"
 
     # Clear result file before matching
     : > "${result_file}"
