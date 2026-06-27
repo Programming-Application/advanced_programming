@@ -1,16 +1,24 @@
-CC ?= gcc
-LIBOMP_PREFIX := $(shell brew --prefix libomp 2>/dev/null)
+UNAME_S := $(shell uname -s)
 
-ifneq ($(LIBOMP_PREFIX),)
-OMP_FLAGS := -Xpreprocessor -fopenmp -I$(LIBOMP_PREFIX)/include -L$(LIBOMP_PREFIX)/lib -lomp
-else ifeq ($(shell printf 'int main(){return 0;}' | $(CC) -fopenmp -x c - -o /dev/null 2>/dev/null && echo ok),ok)
-OMP_FLAGS := -fopenmp
+ifeq ($(UNAME_S),Darwin)
+  # macOS: Apple Clang needs Xpreprocessor + Homebrew libomp
+  OMP_CFLAGS  := -Xpreprocessor -fopenmp -I$(shell brew --prefix libomp)/include
+  OMP_LDFLAGS := -L$(shell brew --prefix libomp)/lib -lomp
 else
-OMP_FLAGS :=
+  # Linux / WSL: gcc supports -fopenmp natively
+  OMP_CFLAGS  := -fopenmp
+  OMP_LDFLAGS := -fopenmp
 endif
 
 matching: main.c imageUtil.c
-	$(CC) -w -O2 $(OMP_FLAGS) -o matching main.c imageUtil.c -lm
+	gcc -w -O2 $(OMP_CFLAGS) -o matching main.c imageUtil.c -lm $(OMP_LDFLAGS)
+#	gcc -w -O1 $(OMP_CFLAGS) -o matching main.c imageUtil.c -lm $(OMP_LDFLAGS)
+#	gcc -w -O3 $(OMP_CFLAGS) -o matching main.c imageUtil.c -lm $(OMP_LDFLAGS)
+#	gcc -w -O3 $(OMP_CFLAGS) -o matching main.c imageUtil.c -lm $(OMP_LDFLAGS) -funroll-all-loops -funroll-loops -funsafe-loop-optimizations
+#	gcc -w -O3 $(OMP_CFLAGS) -o matching main.c imageUtil.c -lm $(OMP_LDFLAGS) -mtune=native
+#	gcc -w -Ofast $(OMP_CFLAGS) -o matching main.c imageUtil.c -lm $(OMP_LDFLAGS) -mtune=native -mfpmath=both
+#	icc -w -fast -o matching main.c imageUtil.c -lm -mtune=native
+#	icc -w -fast -o matching main.c imageUtil.c -lm
 
 clean:
 	$(RM) matching

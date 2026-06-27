@@ -53,6 +53,12 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+# Clean previous results for this level
+for image in "${LEVEL_DIR}"/test/*.ppm; do
+    rm -f "result/$(basename "${image}" .ppm).txt"
+done
+
+THRESHOLD=0.5
 NEED_BEST=0
 if [ "${MODULES}" != "base" ]; then
     NEED_BEST=1
