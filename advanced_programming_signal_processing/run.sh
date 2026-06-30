@@ -43,6 +43,7 @@ while [ $# -gt 0 ]; do
         -c)
             . ./preprocess/contrast.sh
             MODULES="${MODULES} contrast"
+            ;;
         -d)
             . ./preprocess/denoise.sh
             MODULES="${MODULES} denoise"
