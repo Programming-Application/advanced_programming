@@ -14,6 +14,12 @@ get_template_variants_base() {
     echo "${template} 0"
 }
 
+preprocess_image_base() {
+    local image="$1"
+    local output="$2"
+    convert "${image}" "${output}"
+}
+
 cleanup_base() {
     :
 }
