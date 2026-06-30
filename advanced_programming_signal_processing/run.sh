@@ -5,6 +5,7 @@
 #   -s  enable scaling  (preprocess/scale.sh)
 #   -d  enable denoise   (preprocess/denoise.sh)
 #   -e  enable edge      (preprocess/edge.sh)
+#   -c  enable contrast variants (preprocess/contrast.sh)
 # No flags: base matching only (rotation=0)
 
 LEVEL_DIR="$1"
@@ -39,6 +40,9 @@ while [ $# -gt 0 ]; do
                 echo "Warning: preprocess/scale.sh not found, skipping -s" >&2
             fi
             ;;
+        -c)
+            . ./preprocess/contrast.sh
+            MODULES="${MODULES} contrast"
         -d)
             . ./preprocess/denoise.sh
             MODULES="${MODULES} denoise"
