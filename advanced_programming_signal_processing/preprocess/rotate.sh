@@ -10,7 +10,7 @@ prepare_templates_rotate() {
     for rot in 90 180 270; do
         mkdir -p "${ROT_DIR}/${rot}"
         for t in "${src_dir}"/*.ppm; do
-            "${IM_CMD:-convert}" -rotate "${rot}" "$t" "${ROT_DIR}/${rot}/$(basename "$t")"
+            convert -rotate "${rot}" "$t" "${ROT_DIR}/${rot}/$(basename "$t")"
         done
     done
 }

@@ -1,8 +1,10 @@
 #!/bin/sh
 # Template matching pipeline
-# Usage: sh run.sh <level_dir> [-r] [-s] [-c] ...
+# Usage: sh run.sh <level_dir> [-r] [-s] [-d] [-m radius] [-t threshold] [-e] ...
 #   -r  enable rotation (preprocess/rotate.sh)
 #   -s  enable scaling  (preprocess/scale.sh)
+#   -d  enable denoise   (preprocess/denoise.sh)
+#   -e  enable edge      (preprocess/edge.sh)
 #   -c  enable contrast variants (preprocess/contrast.sh)
 # No flags: base matching only (rotation=0)
 
@@ -52,6 +54,11 @@ while [ $# -gt 0 ]; do
             . ./preprocess/denoise.sh
             MODULES="${MODULES} denoise"
             IMAGE_PREPROCESS="denoise"
+            ;;
+        -e)
+            . ./preprocess/edge.sh
+            MODULES="${MODULES} edge"
+            IMAGE_PREPROCESS="edge"
             ;;
         -t)
             shift
