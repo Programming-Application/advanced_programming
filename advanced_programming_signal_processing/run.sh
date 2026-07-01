@@ -13,6 +13,7 @@ shift
 
 THRESHOLD=0.5
 IMAGE_PREPROCESS="base"
+THRESHOLD_SET=0
 
 PREP_TMPDIR="imgproc/variants"
 mkdir -p "${PREP_TMPDIR}"
@@ -58,12 +59,13 @@ while [ $# -gt 0 ]; do
             ;;
         -e)
             . ./preprocess/edge.sh
-            MODULES="${MODULES} edge"
+            MODULES="edge"
             IMAGE_PREPROCESS="edge"
             ;;
         -t)
             shift
             THRESHOLD="$1"
+            THRESHOLD_SET=1
             ;;
     esac
     shift
@@ -74,10 +76,17 @@ for image in "${LEVEL_DIR}"/test/*.ppm; do
     rm -f "result/$(basename "${image}" .ppm).txt"
 done
 
-THRESHOLD=0.5
 NEED_BEST=0
 if [ "${MODULES}" != "base" ]; then
     NEED_BEST=1
+fi
+
+if [ "${THRESHOLD_SET}" -eq 0 ] && [ "${MODULES}" = "contrast" ]; then
+    THRESHOLD=0.55
+fi
+
+if [ "${THRESHOLD_SET}" -eq 0 ] && [ "${MODULES}" = "edge" ]; then
+    THRESHOLD=1.2
 fi
 
 # Prepare all modules
