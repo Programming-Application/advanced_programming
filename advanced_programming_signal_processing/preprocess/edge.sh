@@ -2,6 +2,7 @@
 # Preprocessing module: edge extraction for transparent-background templates
 
 EDGE_RADIUS="1"
+IMAGE_PREPROCESS="edge"
 
 prepare_templates_edge() {
     local src_dir="$1"
@@ -13,7 +14,7 @@ prepare_templates_edge() {
     mkdir -p "${edge_dir}"
     for template in "${src_dir}"/*.ppm; do
         base=$(basename "${template}")
-        convert "${template}" -colorspace Gray -auto-level -edge "${EDGE_RADIUS}" -normalize "${edge_dir}/${base}"
+        convert "${template}" -normalize -edge "${EDGE_RADIUS}" -normalize "${edge_dir}/${base}"
     done
 }
 
@@ -33,7 +34,7 @@ preprocess_image_edge() {
     local output="$2"
 
     mkdir -p "$(dirname "${output}")"
-    convert "${image}" -colorspace Gray -auto-level -edge "${EDGE_RADIUS}" -normalize "${output}"
+    convert "${image}" -normalize "${output}"
 }
 
 cleanup_edge() {
