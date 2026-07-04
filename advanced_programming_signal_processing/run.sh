@@ -71,6 +71,13 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+LEVEL_NAME=$(basename "${LEVEL_DIR}")
+if [ "${LEVEL_NAME}" = "level7" ]; then
+    . ./preprocess/level7.sh
+    run_level7 "${LEVEL_DIR}" "${OUTPUT_IMAGE_DIR}" "${THRESHOLD}" "${THRESHOLD_SET}"
+    exit 0
+fi
+
 # Clean previous results for this level
 for image in "${LEVEL_DIR}"/test/*.ppm; do
     rm -f "result/$(basename "${image}" .ppm).txt"
@@ -82,11 +89,11 @@ if [ "${MODULES}" != "base" ]; then
 fi
 
 if [ "${THRESHOLD_SET}" -eq 0 ] && [ "${MODULES}" = "contrast" ]; then
-    THRESHOLD=0.55
+    THRESHOLD=0.6
 fi
 
 if [ "${THRESHOLD_SET}" -eq 0 ] && [ "${MODULES}" = "edge" ]; then
-    THRESHOLD=1.2
+    THRESHOLD=1.0
 fi
 
 # Prepare all modules
