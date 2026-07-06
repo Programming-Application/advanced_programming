@@ -1,58 +1,32 @@
 #!/bin/sh
-# Preprocessing module: contrast variations for level 3
+# Preprocessing module: contrast normalization for level 3
+# Normalizes both templates and input images to eliminate contrast differences
 
-CONTRAST_FACTORS="0.5 1.0 1.5 2.0"
-IMAGE_PREPROCESS="contrast"
+CONTRAST_DIR="${PREP_TMPDIR}/contrast"
 
 prepare_templates_contrast() {
     local src_dir="$1"
-    local template
-    local base
-    local factor
-    local contrast_dir
-    local out_dir
-    local out_file
-
-    contrast_dir="${PREP_TMPDIR}/contrast"
-
+    mkdir -p "${CONTRAST_DIR}"
     for template in "${src_dir}"/*.ppm; do
-        base=$(basename "${template}")
-
-        for factor in ${CONTRAST_FACTORS}; do
-            out_dir="${contrast_dir}/factor_$(echo "${factor}" | tr '.' '_')"
-            mkdir -p "${out_dir}"
-            out_file="${out_dir}/${base}"
-            convert "${template}" -normalize -fx "0.5+${factor}*(u-0.5)" "${out_file}"
-        done
+        convert "${template}" -normalize "${CONTRAST_DIR}/$(basename "${template}")"
     done
 }
 
 get_template_variants_contrast() {
     local template="$1"
     local base
-    local factor
-    local contrast_dir
-
-    contrast_dir="${PREP_TMPDIR}/contrast"
-
     base=$(basename "${template}")
     echo "${template} 0"
-    for factor in ${CONTRAST_FACTORS}; do
-        echo "${contrast_dir}/factor_$(echo "${factor}" | tr '.' '_')/${base} 0"
-    done
+    echo "${CONTRAST_DIR}/${base} 0"
 }
 
 preprocess_image_contrast() {
     local image="$1"
     local output="$2"
-
     mkdir -p "$(dirname "${output}")"
     convert "${image}" -normalize "${output}"
 }
 
 cleanup_contrast() {
-    local contrast_dir
-
-    contrast_dir="${PREP_TMPDIR}/contrast"
-    [ -d "${contrast_dir}" ] && rm -rf "${contrast_dir}"
+    [ -d "${CONTRAST_DIR}" ] && rm -rf "${CONTRAST_DIR}"
 }

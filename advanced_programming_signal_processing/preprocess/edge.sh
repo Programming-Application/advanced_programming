@@ -1,46 +1,33 @@
 #!/bin/sh
-# Preprocessing module: edge extraction for transparent-background templates
+# Preprocessing module: alpha mask for transparent-background templates (level 4)
+# Generates PGM masks from templates: foreground pixels (non-black) = white, background (black) = black
+# The mask is passed to matching as a 3rd column in the variants file
 
-EDGE_RADIUS="1"
-IMAGE_PREPROCESS="edge"
+MASK_DIR="${PREP_TMPDIR}/masks"
 
 prepare_templates_edge() {
     local src_dir="$1"
-    local template
-    local base
-    local edge_dir
-
-    edge_dir="${PREP_TMPDIR}/edge"
-    mkdir -p "${edge_dir}"
+    mkdir -p "${MASK_DIR}"
     for template in "${src_dir}"/*.ppm; do
-        base=$(basename "${template}")
-        convert "${template}" -colorspace Gray -auto-level -canny 0x1+10%+30% -normalize "${edge_dir}/${base}" 2>/dev/null || \
-            convert "${template}" -colorspace Gray -auto-level -edge "${EDGE_RADIUS}" -normalize "${edge_dir}/${base}"
+        local base
+        base=$(basename "${template}" .ppm)
+        convert "${template}" -colorspace Gray -threshold 3% "${MASK_DIR}/${base}.pgm"
     done
 }
 
 get_template_variants_edge() {
     local template="$1"
     local base
-    local edge_dir
-
-    edge_dir="${PREP_TMPDIR}/edge"
-    base=$(basename "${template}")
-    echo "${edge_dir}/${base} 0"
+    base=$(basename "${template}" .ppm)
+    echo "${template} 0 ${MASK_DIR}/${base}.pgm"
 }
 
 preprocess_image_edge() {
     local image="$1"
     local output="$2"
-
-    mkdir -p "$(dirname "${output}")"
-    convert "${image}" -colorspace Gray -auto-level -canny 0x1+10%+30% -normalize "${output}" 2>/dev/null || \
-        convert "${image}" -colorspace Gray -auto-level -edge "${EDGE_RADIUS}" -normalize "${output}"
+    convert "${image}" "${output}"
 }
 
 cleanup_edge() {
-    local edge_dir
-
-    edge_dir="${PREP_TMPDIR}/edge"
-    [ -d "${edge_dir}" ] && rm -rf "${edge_dir}"
+    [ -d "${MASK_DIR}" ] && rm -rf "${MASK_DIR}"
 }
