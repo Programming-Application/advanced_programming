@@ -8,6 +8,10 @@
 #include <omp.h>
 #endif
 
+#define COARSE_SCALE 4
+#define REFINE_MARGIN 12
+#define MIN_COARSE_DIM 6
+
 Image *rotateImage(Image *src, int angle)
 {
 	int W = src->width, H = src->height, c = src->channel;
@@ -85,53 +89,79 @@ Image *scaleImage(Image *src, double factor)
 	return dst;
 }
 
-void templateMatchingGray(Image *src, Image *template, Image *mask, Point *position, double *distance)
+Image *downscaleImage(Image *src, int factor)
 {
-	if (src->channel != 1 || template->channel != 1)
-	{
-		fprintf(stderr, "src and/or templeta image is not a gray image.\n");
-		return;
-	}
+	int nw = src->width / factor;
+	int nh = src->height / factor;
+	if (nw < 1) nw = 1;
+	if (nh < 1) nh = 1;
+	int c = src->channel;
+	int n = factor * factor;
+	Image *dst = createImage(nw, nh, c);
+	int x, y, ch, dy, dx;
+	for (y = 0; y < nh; y++)
+		for (x = 0; x < nw; x++)
+			for (ch = 0; ch < c; ch++)
+			{
+				int sum = 0;
+				for (dy = 0; dy < factor; dy++)
+					for (dx = 0; dx < factor; dx++)
+						sum += src->data[((y * factor + dy) * src->width + (x * factor + dx)) * c + ch];
+				dst->data[(y * nw + x) * c + ch] = (unsigned char)(sum / n);
+			}
+	return dst;
+}
 
-	int norm = template->width * template->height;
+Image *toGray(Image *src)
+{
+	if (src->channel == 1) return cloneImage(src);
+	Image *g = createImage(src->width, src->height, 1);
+	cvtColorGray(src, g);
+	return g;
+}
+
+void matchGrayRegion(Image *src, Image *tmpl, Image *mask,
+                     int y0, int y1, int x0, int x1,
+                     Point *position, double *distance)
+{
+	int norm = tmpl->width * tmpl->height;
 	if (mask)
 	{
 		norm = 0;
 		int k;
-		for (k = 0; k < template->width * template->height; k++)
+		for (k = 0; k < tmpl->width * tmpl->height; k++)
 			if (mask->data[k] > 128) norm++;
-		if (norm == 0) norm = template->width * template->height;
+		if (norm == 0) norm = tmpl->width * tmpl->height;
 	}
 
 	int min_distance = INT_MAX;
-	int ret_x = 0;
-	int ret_y = 0;
-	int x, y, i, j;
+	int ret_x = x0, ret_y = y0;
+	int y, x, i, j;
+
 	#pragma omp parallel for schedule(dynamic) private(x, i, j)
-	for (y = 0; y < (src->height - template->height); y++)
+	for (y = y0; y <= y1; y++)
 	{
-		for (x = 0; x < src->width - template->width; x++)
+		for (x = x0; x <= x1; x++)
 		{
-			int distance = 0;
-			for (j = 0; j < template->height; j++)
+			int d = 0;
+			for (j = 0; j < tmpl->height; j++)
 			{
-				for (i = 0; i < template->width; i++)
+				for (i = 0; i < tmpl->width; i++)
 				{
-					if (mask && mask->data[j * template->width + i] <= 128)
+					if (mask && mask->data[j * tmpl->width + i] <= 128)
 						continue;
-					int v = (src->data[(y + j) * src->width + (x + i)] - template->data[j * template->width + i]);
-					distance += v * v;
+					int v = src->data[(y + j) * src->width + (x + i)] - tmpl->data[j * tmpl->width + i];
+					d += v * v;
 				}
-				if (distance >= min_distance)
-					break;
+				if (d >= min_distance) break;
 			}
-			if (distance < min_distance)
+			if (d < min_distance)
 			{
 				#pragma omp critical
 				{
-					if (distance < min_distance)
+					if (d < min_distance)
 					{
-						min_distance = distance;
+						min_distance = d;
 						ret_x = x;
 						ret_y = y;
 					}
@@ -145,144 +175,81 @@ void templateMatchingGray(Image *src, Image *template, Image *mask, Point *posit
 	*distance = sqrt((double)min_distance / norm);
 }
 
-void templateMatchingColor(Image *src, Image *template, Image *mask, Point *position, double *distance)
+void matchMultiRes(Image *src_gray, Image *src_coarse,
+                   Image *tmpl_gray, Image *mask, double threshold,
+                   Point *position, double *distance)
 {
-	if (src->channel != 3 || template->channel != 3)
+	int full_y = src_gray->height - tmpl_gray->height;
+	int full_x = src_gray->width - tmpl_gray->width;
+	if (full_y < 0 || full_x < 0)
 	{
-		fprintf(stderr, "src and/or templeta image is not a color image.\n");
+		position->x = 0;
+		position->y = 0;
+		*distance = 1e30;
 		return;
 	}
 
-	int norm = template->width * template->height;
-	if (mask)
-	{
-		norm = 0;
-		int k;
-		for (k = 0; k < template->width * template->height; k++)
-			if (mask->data[k] > 128) norm++;
-		if (norm == 0) norm = template->width * template->height;
-	}
+	int tw_c = tmpl_gray->width / COARSE_SCALE;
+	int th_c = tmpl_gray->height / COARSE_SCALE;
 
-	int min_distance = INT_MAX;
-	int ret_x = 0;
-	int ret_y = 0;
-	int x, y, i, j;
-	#pragma omp parallel for schedule(dynamic) private(x, i, j)
-	for (y = 0; y < (src->height - template->height); y++)
+	if (tw_c >= MIN_COARSE_DIM && th_c >= MIN_COARSE_DIM && src_coarse)
 	{
-		for (x = 0; x < src->width - template->width; x++)
+		Image *tmpl_c = downscaleImage(tmpl_gray, COARSE_SCALE);
+		Image *mask_c = mask ? downscaleImage(mask, COARSE_SCALE) : NULL;
+
+		int cy1 = src_coarse->height - tmpl_c->height;
+		int cx1 = src_coarse->width - tmpl_c->width;
+
+		if (cy1 >= 0 && cx1 >= 0)
 		{
-			int distance = 0;
-			for (j = 0; j < template->height; j++)
-			{
-				for (i = 0; i < template->width; i++)
-				{
-					if (mask && mask->data[j * template->width + i] <= 128)
-						continue;
-					int pt = 3 * ((y + j) * src->width + (x + i));
-					int pt2 = 3 * (j * template->width + i);
-					int r = (src->data[pt + 0] - template->data[pt2 + 0]);
-					int g = (src->data[pt + 1] - template->data[pt2 + 1]);
-					int b = (src->data[pt + 2] - template->data[pt2 + 2]);
+			Point cp;
+			double cd;
+			matchGrayRegion(src_coarse, tmpl_c, mask_c, 0, cy1, 0, cx1, &cp, &cd);
 
-					distance += (r * r + g * g + b * b);
-				}
-				if (distance >= min_distance)
-					break;
-			}
-			if (distance < min_distance)
-			{
-				#pragma omp critical
-				{
-					if (distance < min_distance)
-					{
-						min_distance = distance;
-						ret_x = x;
-						ret_y = y;
-					}
-				}
-			}
+			freeImage(tmpl_c);
+			if (mask_c) freeImage(mask_c);
+
+			int fy = cp.y * COARSE_SCALE;
+			int fx = cp.x * COARSE_SCALE;
+			int ry0 = fy - REFINE_MARGIN; if (ry0 < 0) ry0 = 0;
+			int rx0 = fx - REFINE_MARGIN; if (rx0 < 0) rx0 = 0;
+			int ry1 = fy + REFINE_MARGIN; if (ry1 > full_y) ry1 = full_y;
+			int rx1 = fx + REFINE_MARGIN; if (rx1 > full_x) rx1 = full_x;
+
+			matchGrayRegion(src_gray, tmpl_gray, mask, ry0, ry1, rx0, rx1, position, distance);
+
+			if (*distance < threshold)
+				return;
+		}
+		else
+		{
+			freeImage(tmpl_c);
+			if (mask_c) freeImage(mask_c);
 		}
 	}
 
-	position->x = ret_x;
-	position->y = ret_y;
-	*distance = sqrt((double)min_distance / norm);
+	matchGrayRegion(src_gray, tmpl_gray, mask, 0, full_y, 0, full_x, position, distance);
 }
 
-int main(int argc, char **argv)
+void processOneTemplate(Image *src_gray, Image *src_coarse, Image *src_color,
+                        const char *template_file, int rotation, const char *mask_file,
+                        double threshold, int isRotate, int isScale, int isPrint, int isWrite,
+                        const char *output_name_txt)
 {
-	if (argc < 5)
-	{
-		fprintf(stderr, "Usage: templateMatching src_image temlate_image rotation threshold option(c,w,p,g,r,s)\n");
-		fprintf(stderr, "Option:\nc) clear a txt result. \nw) write result a image with rectangle.\np) print results.\ng) grayscale matching.\nr) try all rotations (0,90,180,270).\ns) try all scales (0.5,1,2).\n");
-		return -1;
-	}
-
-	char *input_file = argv[1];
-	char *template_file = argv[2];
-	int rotation = atoi(argv[3]);
-	double threshold = atof(argv[4]);
-
-	printf("rotation -> %d\n", rotation);
-
-	char output_name_base[256];
-	char output_name_txt[256];
-	char output_name_img[256];
-	strcpy(output_name_base, "result/");
-	strcat(output_name_base, getBaseName(input_file));
-	strcpy(output_name_txt, output_name_base);
-	strcat(output_name_txt, ".txt");
-	strcpy(output_name_img, output_name_base);
-
-	int isWriteImageResult = 0;
-	int isPrintResult = 0;
-	int isGray = 0;
-	int isRotate = 0;
-	int isScale = 0;
-
-	if (argc >= 6)
-	{
-		char *p = NULL;
-		if ((p = strchr(argv[5], 'c')) != NULL)
-			clearResult(output_name_txt);
-		if ((p = strchr(argv[5], 'w')) != NULL)
-			isWriteImageResult = 1;
-		if ((p = strchr(argv[5], 'p')) != NULL)
-			isPrintResult = 1;
-		if ((p = strchr(argv[5], 'g')) != NULL)
-			isGray = 1;
-		if ((p = strchr(argv[5], 'r')) != NULL)
-			isRotate = 1;
-		if ((p = strchr(argv[5], 's')) != NULL)
-			isScale = 1;
-	}
-
-	Image *img = readPXM(input_file);
-	Image *template = readPXM(template_file);
-	if (img == NULL || template == NULL)
-	{
-		return -1;
-	}
+	Image *tmpl = readPXM(template_file);
+	if (!tmpl) return;
 
 	Image *mask = NULL;
-	if (argc >= 7)
+	if (mask_file && mask_file[0])
 	{
-		mask = readPXM(argv[6]);
+		mask = readPXM(mask_file);
 		if (mask && mask->channel == 3)
 		{
-			Image *mask_gray = createImage(mask->width, mask->height, 1);
-			cvtColorGray(mask, mask_gray);
+			Image *mg = createImage(mask->width, mask->height, 1);
+			cvtColorGray(mask, mg);
 			freeImage(mask);
-			mask = mask_gray;
+			mask = mg;
 		}
-	}
-
-	Image *img_gray = NULL;
-	if (isGray && img->channel == 3)
-	{
-		img_gray = createImage(img->width, img->height, 1);
-		cvtColorGray(img, img_gray);
 	}
 
 	double scaleFactors[3];
@@ -314,14 +281,14 @@ int main(int argc, char **argv)
 	double bestDist = 1e30;
 	Point bestPos = {0, 0};
 	int bestRot = rotation;
-	int bestW = template->width;
-	int bestH = template->height;
+	int bestW = tmpl->width;
+	int bestH = tmpl->height;
 
 	int si, ri;
 	for (si = 0; si < nScales; si++)
 	{
 		double sf = scaleFactors[si];
-		Image *scaledT = (sf == 1.0) ? template : scaleImage(template, sf);
+		Image *scaledT = (sf == 1.0) ? tmpl : scaleImage(tmpl, sf);
 		Image *scaledM = (sf == 1.0 || !mask) ? mask : scaleImage(mask, sf);
 
 		for (ri = 0; ri < nRots; ri++)
@@ -330,26 +297,21 @@ int main(int argc, char **argv)
 			Image *rotT = (ra == 0) ? scaledT : rotateImage(scaledT, ra);
 			Image *rotM = (ra == 0 || !scaledM) ? scaledM : rotateImage(scaledM, ra);
 
-			if (rotT->width >= img->width || rotT->height >= img->height)
+			if (rotT->width >= src_gray->width || rotT->height >= src_gray->height)
 			{
 				if (ra != 0) { freeImage(rotT); if (rotM && rotM != scaledM) freeImage(rotM); }
 				continue;
 			}
 
+			Image *tg = toGray(rotT);
+			Image *mg = (rotM && rotM->channel != 1) ? toGray(rotM) : rotM;
+
 			Point pos;
 			double dist;
+			matchMultiRes(src_gray, src_coarse, tg, mg, threshold, &pos, &dist);
 
-			if (img_gray)
-			{
-				Image *tg = createImage(rotT->width, rotT->height, 1);
-				cvtColorGray(rotT, tg);
-				templateMatchingGray(img_gray, tg, rotM, &pos, &dist);
-				freeImage(tg);
-			}
-			else
-			{
-				templateMatchingColor(img, rotT, rotM, &pos, &dist);
-			}
+			if (tg != rotT) freeImage(tg);
+			if (mg && mg != rotM) freeImage(mg);
 
 			if (dist < bestDist)
 			{
@@ -360,51 +322,140 @@ int main(int argc, char **argv)
 				bestH = rotT->height;
 			}
 
-			if (ra != 0)
-			{
-				freeImage(rotT);
-				if (rotM && rotM != scaledM) freeImage(rotM);
-			}
+			if (ra != 0) { freeImage(rotT); if (rotM && rotM != scaledM) freeImage(rotM); }
+			if (bestDist <= 0.0) break;
 		}
 
-		if (sf != 1.0)
-		{
-			freeImage(scaledT);
-			if (scaledM && scaledM != mask) freeImage(scaledM);
-		}
+		if (sf != 1.0) { freeImage(scaledT); if (scaledM && scaledM != mask) freeImage(scaledM); }
+		if (bestDist <= 0.0) break;
 	}
 
+	printf("rotation -> %d\n", bestRot);
 	if (bestDist < threshold)
 	{
 		writeResult(output_name_txt, getBaseName(template_file), bestPos, bestW, bestH, bestRot, bestDist);
-		if (isPrintResult)
-		{
+		if (isPrint)
 			printf("[Found    ] %s %d %d %d %d %d %f\n", getBaseName(template_file), bestPos.x, bestPos.y, bestW, bestH, bestRot, bestDist);
-		}
-		if (isWriteImageResult)
+		if (isWrite && src_color)
 		{
-			drawRectangle(img, bestPos, bestW, bestH);
-
-			if (img->channel == 3)
+			char output_name_img[256];
+			strcpy(output_name_img, "result/");
+			strcat(output_name_img, getBaseName(template_file));
+			drawRectangle(src_color, bestPos, bestW, bestH);
+			if (src_color->channel == 3)
 				strcat(output_name_img, ".ppm");
-			else if (img->channel == 1)
+			else
 				strcat(output_name_img, ".pgm");
-			printf("out: %s", output_name_img);
-			writePXM(output_name_img, img);
+			writePXM(output_name_img, src_color);
 		}
 	}
 	else
 	{
-		if (isPrintResult)
-		{
+		if (isPrint)
 			printf("[Not found] %s %d %d %d %d %d %f\n", getBaseName(template_file), bestPos.x, bestPos.y, bestW, bestH, bestRot, bestDist);
+	}
+
+	freeImage(tmpl);
+	if (mask) freeImage(mask);
+}
+
+int main(int argc, char **argv)
+{
+	if (argc < 3)
+	{
+		fprintf(stderr, "Usage: matching src template rotation threshold options [mask]\n");
+		fprintf(stderr, "  or:  matching src --batch batch_file threshold options\n");
+		return -1;
+	}
+
+	char *input_file = argv[1];
+
+	char output_name_txt[256];
+	strcpy(output_name_txt, "result/");
+	strcat(output_name_txt, getBaseName(input_file));
+	strcat(output_name_txt, ".txt");
+
+	Image *img = readPXM(input_file);
+	if (!img) return -1;
+
+	Image *img_gray = toGray(img);
+	Image *img_coarse = downscaleImage(img_gray, COARSE_SCALE);
+
+	if (strcmp(argv[2], "--batch") == 0)
+	{
+		if (argc < 5)
+		{
+			fprintf(stderr, "Batch usage: matching src --batch batch_file threshold [options]\n");
+			freeImage(img); freeImage(img_gray); freeImage(img_coarse);
+			return -1;
 		}
+
+		char *batch_file = argv[3];
+		double threshold = atof(argv[4]);
+		char *options = argc >= 6 ? argv[5] : "";
+
+		int isRotate = 0, isScale = 0, isPrint = 0, isWrite = 0;
+		if (strchr(options, 'c')) clearResult(output_name_txt);
+		if (strchr(options, 'r')) isRotate = 1;
+		if (strchr(options, 's')) isScale = 1;
+		if (strchr(options, 'p')) isPrint = 1;
+		if (strchr(options, 'w')) isWrite = 1;
+
+		FILE *fp = fopen(batch_file, "r");
+		if (!fp)
+		{
+			fprintf(stderr, "Cannot open batch file: %s\n", batch_file);
+			freeImage(img); freeImage(img_gray); freeImage(img_coarse);
+			return -1;
+		}
+
+		char line[1024];
+		while (fgets(line, sizeof(line), fp))
+		{
+			char tmpl_path[512] = "";
+			char mask_path[512] = "";
+			int rotation = 0;
+			int n = sscanf(line, "%511s %d %511s", tmpl_path, &rotation, mask_path);
+			if (n < 2 || tmpl_path[0] == '\0') continue;
+
+			processOneTemplate(img_gray, img_coarse, img,
+			                   tmpl_path, rotation, n >= 3 ? mask_path : NULL,
+			                   threshold, isRotate, isScale, isPrint, isWrite,
+			                   output_name_txt);
+		}
+
+		fclose(fp);
+	}
+	else
+	{
+		if (argc < 5)
+		{
+			fprintf(stderr, "Usage: matching src template rotation threshold options [mask]\n");
+			freeImage(img); freeImage(img_gray); freeImage(img_coarse);
+			return -1;
+		}
+
+		char *template_file = argv[2];
+		int rotation = atoi(argv[3]);
+		double threshold = atof(argv[4]);
+		char *options = argc >= 6 ? argv[5] : "";
+		char *mask_file = argc >= 7 ? argv[6] : NULL;
+
+		int isRotate = 0, isScale = 0, isPrint = 0, isWrite = 0;
+		if (strchr(options, 'c')) clearResult(output_name_txt);
+		if (strchr(options, 'r')) isRotate = 1;
+		if (strchr(options, 's')) isScale = 1;
+		if (strchr(options, 'p')) isPrint = 1;
+		if (strchr(options, 'w')) isWrite = 1;
+
+		processOneTemplate(img_gray, img_coarse, img,
+		                   template_file, rotation, mask_file,
+		                   threshold, isRotate, isScale, isPrint, isWrite,
+		                   output_name_txt);
 	}
 
 	freeImage(img);
-	freeImage(template);
-	if (mask) freeImage(mask);
-	if (img_gray) freeImage(img_gray);
-
+	freeImage(img_gray);
+	freeImage(img_coarse);
 	return 0;
 }

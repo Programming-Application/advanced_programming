@@ -11,7 +11,7 @@ else
 endif
 
 matching: main.c imageUtil.c
-	gcc -w -O2 $(OMP_CFLAGS) -o matching main.c imageUtil.c -lm $(OMP_LDFLAGS)
+	gcc -w -O3 $(OMP_CFLAGS) -o matching main.c imageUtil.c -lm $(OMP_LDFLAGS)
 #	gcc -w -O1 $(OMP_CFLAGS) -o matching main.c imageUtil.c -lm $(OMP_LDFLAGS)
 #	gcc -w -O3 $(OMP_CFLAGS) -o matching main.c imageUtil.c -lm $(OMP_LDFLAGS)
 #	gcc -w -O3 $(OMP_CFLAGS) -o matching main.c imageUtil.c -lm $(OMP_LDFLAGS) -funroll-all-loops -funroll-loops -funsafe-loop-optimizations

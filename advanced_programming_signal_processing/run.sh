@@ -92,8 +92,6 @@ for mod in ${MODULES}; do
     "prepare_templates_${mod}" "${LEVEL_DIR}"
 done
 
-VARIANTS_FILE="${PREP_TMPDIR}/_variants.txt"
-
 # Collect all template variants from active modules
 get_all_variants() {
     local template="$1"
@@ -109,66 +107,73 @@ keep_best_result() {
     mv "$f.tmp" "$f"
 }
 
+# Process each image in a subshell (all images run in parallel)
 for image in "${LEVEL_DIR}"/test/*.ppm; do
-    bname=$(basename "${image}")
-    name="imgproc/${bname}"
-    result_file="result/${bname%.ppm}.txt"
+    (
+        bname=$(basename "${image}")
+        name="imgproc/${bname}"
+        result_file="result/${bname%.ppm}.txt"
+        batch_file="${PREP_TMPDIR}/_batch_${bname}.txt"
 
-    echo "${name}"
-    if [ -z "${IMAGE_PIPELINE}" ]; then
-        preprocess_image_base "${image}" "${name}"
-    else
-        prev="${image}"
-        step=0
-        for stage in ${IMAGE_PIPELINE}; do
-            step=$((step + 1))
-            next="${PREP_TMPDIR}/_pipe_${step}.ppm"
-            "preprocess_image_${stage}" "${prev}" "${next}"
-            prev="${next}"
-        done
-        cp "${prev}" "${name}"
-    fi
+        echo "${name}"
+        if [ -z "${IMAGE_PIPELINE}" ]; then
+            preprocess_image_base "${image}" "${name}"
+        else
+            prev="${image}"
+            step=0
+            for stage in ${IMAGE_PIPELINE}; do
+                step=$((step + 1))
+                next="${PREP_TMPDIR}/_pipe_${bname}_${step}.ppm"
+                "preprocess_image_${stage}" "${prev}" "${next}"
+                prev="${next}"
+            done
+            cp "${prev}" "${name}"
+        fi
 
-    # Archive the test image (fake data) and its ground truth (correct answer)
-    convert "${image}" "${OUTPUT_IMAGE_DIR}/${bname%.ppm}.png"
-    answer_file="${LEVEL_DIR}/test/${bname%.ppm}.txt"
-    [ -f "${answer_file}" ] && cp "${answer_file}" "${OUTPUT_IMAGE_DIR}/"
+        # Archive the test image (fake data) and its ground truth (correct answer)
+        convert "${image}" "${OUTPUT_IMAGE_DIR}/${bname%.ppm}.png" &
 
-    # Clear result file before matching
-    : > "${result_file}"
+        answer_file="${LEVEL_DIR}/test/${bname%.ppm}.txt"
+        [ -f "${answer_file}" ] && cp "${answer_file}" "${OUTPUT_IMAGE_DIR}/"
 
-    for template in "${LEVEL_DIR}"/*.ppm; do
-        get_all_variants "${template}" > "${VARIANTS_FILE}"
-        while IFS=' ' read -r variant_path rotation mask_path; do
-            if [ -n "${mask_path}" ]; then
-                ./matching "${name}" "${variant_path}" "${rotation}" "${THRESHOLD}" "${MATCH_OPTS}" "${mask_path}"
-            else
-                ./matching "${name}" "${variant_path}" "${rotation}" "${THRESHOLD}" "${MATCH_OPTS}"
-            fi
-        done < "${VARIANTS_FILE}"
-    done
+        # Clear result file before matching
+        : > "${result_file}"
 
-    # Separate denoise pass: denoised raw image vs original templates
-    # Overwrites ${name} since main pass is done; getBaseName gives correct result file
-    if [ "${NEED_DENOISE:-0}" -eq 1 ]; then
-        preprocess_image_denoise "${image}" "${name}"
+        # Build batch file with all template variants
+        : > "${batch_file}"
         for template in "${LEVEL_DIR}"/*.ppm; do
-            ./matching "${name}" "${template}" 0 "${THRESHOLD}" "${MATCH_OPTS}"
+            get_all_variants "${template}" >> "${batch_file}"
         done
-    fi
 
-    if [ "${NEED_BEST}" -eq 1 ]; then
-        keep_best_result "${result_file}"
-    fi
+        # Single batch matching call for all templates
+        ./matching "${name}" --batch "${batch_file}" "${THRESHOLD}" "${MATCH_OPTS}"
 
-    echo ""
+        # Separate denoise pass
+        if [ "${NEED_DENOISE:-0}" -eq 1 ]; then
+            preprocess_image_denoise "${image}" "${name}"
+            batch_denoise="${PREP_TMPDIR}/_batch_denoise_${bname}.txt"
+            : > "${batch_denoise}"
+            for template in "${LEVEL_DIR}"/*.ppm; do
+                echo "${template} 0" >> "${batch_denoise}"
+            done
+            ./matching "${name}" --batch "${batch_denoise}" "${THRESHOLD}" "${MATCH_OPTS}"
+            rm -f "${batch_denoise}"
+        fi
+
+        if [ "${NEED_BEST}" -eq 1 ]; then
+            keep_best_result "${result_file}"
+        fi
+
+        rm -f "${batch_file}"
+        wait
+        echo ""
+    ) &
 done
+
+wait
 
 # Cleanup all modules
 for mod in ${MODULES}; do
     "cleanup_${mod}"
 done
-rm -f "${VARIANTS_FILE}"
 rmdir "${PREP_TMPDIR}" 2>/dev/null
-
-wait
